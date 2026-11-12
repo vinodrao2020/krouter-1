@@ -53,6 +53,19 @@ function getLocalDateKey(timestamp) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// A date-only value (YYYY-MM-DD) is a LOCAL day, not a UTC instant. `new Date("2026-11-12")`
+// parses as UTC midnight, which on a positive-offset host is later than every timestamp on
+// that local day — so the lastUsed overlay below never replaced the day-level value between
+// local midnight and the UTC offset (00:00-07:00 on Asia/Bangkok). Normalise to local midnight.
+export function lastUsedMs(value) {
+  if (!value) return 0;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [y, m, d] = value.split("-").map(Number);
+    return new Date(y, m - 1, d).getTime();
+  }
+  return new Date(value).getTime();
+}
+
 function addToCounter(target, key, values) {
   if (!target[key]) target[key] = { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0 };
   target[key].requests += values.requests || 1;
@@ -547,12 +560,12 @@ export async function getUsageStats(period = "all") {
     for (const e of histRows) {
       const ts = e.timestamp;
       const modelKey = e.provider ? `${e.model} (${e.provider})` : e.model;
-      if (stats.byModel[modelKey] && new Date(ts) > new Date(stats.byModel[modelKey].lastUsed)) stats.byModel[modelKey].lastUsed = ts;
+      if (stats.byModel[modelKey] && lastUsedMs(ts) > lastUsedMs(stats.byModel[modelKey].lastUsed)) stats.byModel[modelKey].lastUsed = ts;
 
       if (e.connectionId) {
         const accountName = connectionMap[e.connectionId] || `Account ${e.connectionId.slice(0, 8)}...`;
         const accountKey = `${e.model} (${e.provider} - ${accountName})`;
-        if (stats.byAccount[accountKey] && new Date(ts) > new Date(stats.byAccount[accountKey].lastUsed)) stats.byAccount[accountKey].lastUsed = ts;
+        if (stats.byAccount[accountKey] && lastUsedMs(ts) > lastUsedMs(stats.byAccount[accountKey].lastUsed)) stats.byAccount[accountKey].lastUsed = ts;
       }
 
       // 0.5.166 — same bucket ids as the daily loop above; the no-key form now
@@ -560,11 +573,11 @@ export async function getUsageStats(period = "all") {
       const apiKeyKey = (e.apiKey && typeof e.apiKey === "string")
         ? apiKeyBucketId(e.apiKey, e.model, e.provider)
         : `local-no-key|${e.model}|${e.provider || "unknown"}`;
-      if (stats.byApiKey[apiKeyKey] && new Date(ts) > new Date(stats.byApiKey[apiKeyKey].lastUsed)) stats.byApiKey[apiKeyKey].lastUsed = ts;
+      if (stats.byApiKey[apiKeyKey] && lastUsedMs(ts) > lastUsedMs(stats.byApiKey[apiKeyKey].lastUsed)) stats.byApiKey[apiKeyKey].lastUsed = ts;
 
       const endpoint = e.endpoint || "Unknown";
       const endpointKey = `${endpoint}|${e.model}|${e.provider || "unknown"}`;
-      if (stats.byEndpoint[endpointKey] && new Date(ts) > new Date(stats.byEndpoint[endpointKey].lastUsed)) stats.byEndpoint[endpointKey].lastUsed = ts;
+      if (stats.byEndpoint[endpointKey] && lastUsedMs(ts) > lastUsedMs(stats.byEndpoint[endpointKey].lastUsed)) stats.byEndpoint[endpointKey].lastUsed = ts;
     }
   } else {
     // 24h / today: live history
@@ -639,10 +652,14 @@ export async function getUsageStats(period = "all") {
         ake.requests++; ake.promptTokens += promptTokens; ake.completionTokens += completionTokens; ake.cost += entryCost;
         if (new Date(r.timestamp) > new Date(ake.lastUsed)) ake.lastUsed = r.timestamp;
       } else {
-        if (!stats.byApiKey["local-no-key"]) {
-          stats.byApiKey["local-no-key"] = { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0, rawModel: r.model, provider: providerDisplayName, apiKeyMasked: null, keyName: "Local (No API Key)", apiKeyKey: "local-no-key", lastUsed: r.timestamp };
+        // Same bucket id as the daily path and the lastUsed overlay: the bare
+        // "local-no-key" key merged every no-key model into one row and credited
+        // the requests to whichever model was seen last.
+        const noKeyBucket = `local-no-key|${r.model}|${r.provider || "unknown"}`;
+        if (!stats.byApiKey[noKeyBucket]) {
+          stats.byApiKey[noKeyBucket] = { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0, rawModel: r.model, provider: providerDisplayName, apiKeyMasked: null, keyName: "Local (No API Key)", apiKeyKey: "local-no-key", lastUsed: r.timestamp };
         }
-        const ake = stats.byApiKey["local-no-key"];
+        const ake = stats.byApiKey[noKeyBucket];
         ake.requests++; ake.promptTokens += promptTokens; ake.completionTokens += completionTokens; ake.cost += entryCost;
         if (new Date(r.timestamp) > new Date(ake.lastUsed)) ake.lastUsed = r.timestamp;
       }

@@ -13,14 +13,14 @@ function isLLMProvider(id) {
 import Badge from "./Badge";
 import Card from "./Card";
 import OverviewCards from "@/app/(dashboard)/dashboard/usage/components/OverviewCards";
-import UsageTable, { fmt, fmtTime } from "@/app/(dashboard)/dashboard/usage/components/UsageTable";
+import UsageTable, { fmt, fmtTime, lastUsedMs } from "@/app/(dashboard)/dashboard/usage/components/UsageTable";
 import dynamic from "next/dynamic";
 // Lazy-load: keeps @xyflow/react out of the shared bundle until topology renders
 const ProviderTopology = dynamic(() => import("@/app/(dashboard)/dashboard/usage/components/ProviderTopology"), { ssr: false });
 import UsageChart from "@/app/(dashboard)/dashboard/usage/components/UsageChart";
 
 function timeAgo(timestamp) {
-  const diff = Math.floor((Date.now() - new Date(timestamp)) / 1000);
+  const diff = Math.floor((Date.now() - lastUsedMs(timestamp)) / 1000);
   if (diff < 60) return `${diff}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
@@ -143,7 +143,7 @@ function groupDataByKey(data, keyField) {
     s.inputCost += item.inputCost || 0;
     s.outputCost += item.outputCost || 0;
     s.pending += item.pending || 0;
-    if (item.lastUsed && (!s.lastUsed || new Date(item.lastUsed) > new Date(s.lastUsed))) {
+    if (item.lastUsed && (!s.lastUsed || lastUsedMs(item.lastUsed) > lastUsedMs(s.lastUsed))) {
       s.lastUsed = item.lastUsed;
     }
     groups[gk].items.push(item);

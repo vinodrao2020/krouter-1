@@ -8,13 +8,25 @@ import Badge from "@/shared/components/Badge";
 const fmt = (n) => new Intl.NumberFormat().format(n || 0);
 const fmtCost = (n) => `$${(n || 0).toFixed(2)}`;
 
+// A date-only value (YYYY-MM-DD) is a LOCAL day, not a UTC instant. `new Date("2026-11-12")`
+// is UTC midnight, which on a positive-offset browser is in the future during the early
+// hours of that local day — so a day-level lastUsed rendered as "Just now" (negative diff).
+function lastUsedMs(iso) {
+  if (!iso) return 0;
+  if (typeof iso === "string" && /^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    const [y, m, d] = iso.split("-").map(Number);
+    return new Date(y, m - 1, d).getTime();
+  }
+  return new Date(iso).getTime();
+}
+
 function fmtTime(iso) {
   if (!iso) return "Never";
-  const diffMins = Math.floor((Date.now() - new Date(iso)) / 60000);
+  const diffMins = Math.floor((Date.now() - lastUsedMs(iso)) / 60000);
   if (diffMins < 1) return "Just now";
   if (diffMins < 60) return `${diffMins}m ago`;
   if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
-  return new Date(iso).toLocaleDateString();
+  return new Date(lastUsedMs(iso)).toLocaleDateString();
 }
 
 function SortIcon({ field, currentSort, currentOrder }) {
@@ -244,4 +256,4 @@ UsageTable.propTypes = {
 };
 
 // Re-export utilities for use in UsageStats orchestrator
-export { fmt, fmtCost, fmtTime };
+export { fmt, fmtCost, fmtTime, lastUsedMs };
